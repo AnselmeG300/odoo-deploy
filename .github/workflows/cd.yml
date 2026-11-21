@@ -116,23 +116,62 @@ jobs:
           chmod +x /usr/local/bin/kapp
           kapp version
 
+      # -----------------------------------------------------------------------
+      # ACCES AU CLUSTER : deux modes, choisis automatiquement
+      #   - "kubeconfig" : secret KUBE_CONFIG defini (jeton d'un ServiceAccount
+      #     Kubernetes, voir README C.4). Aucun droit IAM Google necessaire :
+      #     c'est le mode des projets bac a sable ou l'IAM est verrouille.
+      #   - "gcloud"     : sinon, cle Google GKE_SA_KEY + get-gke-credentials
+      #     (exige container.clusters.get cote IAM Google).
+      # Un secret ne peut pas etre teste directement dans un "if:", d'ou ce
+      # step qui expose le mode choisi en output.
+      # -----------------------------------------------------------------------
+      - name: Choisir le mode d'acces au cluster
+        id: access
+        env:
+          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+        run: |
+          if [ -n "$KUBE_CONFIG" ]; then
+            echo "mode=kubeconfig" >> "$GITHUB_OUTPUT"
+            echo "Acces au cluster : kubeconfig (secret KUBE_CONFIG)"
+          else
+            echo "mode=gcloud" >> "$GITHUB_OUTPUT"
+            echo "Acces au cluster : cle Google (secret GKE_SA_KEY)"
+          fi
+
+      # Mode kubeconfig
+      - name: Configurer l'acces au cluster (kubeconfig)
+        if: steps.access.outputs.mode == 'kubeconfig'
+        env:
+          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+        run: |
+          mkdir -p ~/.kube
+          printf '%s' "$KUBE_CONFIG" > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      # Mode gcloud
       - name: S'authentifier aupres de Google Cloud
+        if: steps.access.outputs.mode == 'gcloud'
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GKE_SA_KEY }}
 
       - name: Recuperer les acces au cluster GKE
+        if: steps.access.outputs.mode == 'gcloud'
         uses: google-github-actions/get-gke-credentials@v2
         with:
           cluster_name: ${{ secrets.GKE_CLUSTER }}
           location: ${{ secrets.GKE_LOCATION }}
 
+      - name: Verifier la connexion au cluster
+        run: kubectl get nodes
+
       # Sans Ingress Controller, l'Ingress n'a pas d'adresse et Odoo n'est pas
       # joignable depuis Internet. Installation seulement s'il manque :
-      #   - deja present (installe a la main, Etape 7) -> rien a faire, et
-      #     roles/container.developer suffit au compte de service ;
-      #   - absent -> helm l'installe, ce qui exige roles/container.admin
-      #     (objets cluster-scoped : ClusterRole, IngressClass, webhook).
+      #   - deja present (installe a la main, Etape 7) -> rien a faire ;
+      #   - absent -> helm l'installe, ce qui exige des droits sur les objets
+      #     cluster-scoped (ClusterRole, IngressClass, webhook) : cluster-admin
+      #     en mode kubeconfig, roles/container.admin en mode gcloud.
       - name: Verifier / installer l'Ingress Controller (ingress-nginx)
         run: |
           if kubectl get deployment ingress-nginx-controller \
