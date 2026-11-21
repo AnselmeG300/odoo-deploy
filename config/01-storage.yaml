@@ -1,0 +1,29 @@
+#@ load("@ytt:data", "data")
+#@ load("helpers.lib.yaml", "common_labels")
+
+#! =============================================================================
+#! STOCKAGE PERSISTANT - PersistentVolumeClaim (provisionnement DYNAMIQUE)
+#! =============================================================================
+#! Sur GKE, on ne declare plus de PersistentVolume hostPath : les noeuds
+#! (Container-Optimized OS) ont un systeme de fichiers racine en LECTURE SEULE,
+#! donc /mnt/data ne peut pas etre cree ("mkdir /mnt/data: read-only file system").
+#! De plus, un hostPath lie les donnees a UN noeud : elles seraient perdues si le
+#! pod etait replanifie ailleurs.
+#!
+#! Le PVC reference une StorageClass dynamique (standard-rwo par defaut) :
+#! GKE cree automatiquement un disque persistant GCP et le PV associe.
+#! =============================================================================
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgresql-pvc
+  namespace: #@ data.values.namespace
+  labels: #@ common_labels("postgresql", "database")
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: #@ data.values.postgresql.storage
+  storageClassName: #@ data.values.postgresql.storageClass
