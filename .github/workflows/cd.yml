@@ -191,10 +191,12 @@ jobs:
           kubectl rollout status deployment/ingress-nginx-controller \
             -n "$INGRESS_NGINX_NAMESPACE" --timeout=5m
 
+      # Pas de -n : le namespace odoo est cree par rendered.yaml (00-base.yaml).
+      # kapp enregistre l'etat de l'application (ConfigMap) dans le namespace
+      # par defaut du kubeconfig ("default"), qui existe toujours.
       - name: Deployer avec kapp
         run: |
-          kapp deploy -a ${{ env.KAPP_APP }} -n ${{ env.NAMESPACE }} \
-            -f rendered.yaml --yes
+          kapp deploy -a ${{ env.KAPP_APP }} -f rendered.yaml --yes
 
       - name: Afficher l'adresse publique
         run: |
